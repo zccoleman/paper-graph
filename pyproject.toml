@@ -24,6 +24,10 @@ dev = [
     "pytest"
 ]
 
+all = [
+    "paper-graph[dev]"
+]
+
 
 [project.urls]
 Homepage = "https://github.com/zccoleman/paper-graph"
