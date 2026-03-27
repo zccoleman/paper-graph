@@ -4,13 +4,15 @@ authors = [
     {name = "Zachary Coleman", email = "coleman.zacharyc@gmail.com"},
 ]
 description = "Graph exploration for scientific papers."
+version = "0.0.1-dev"
 readme = "README.md"
-requires-python = "=3.12"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
 dependencies = [
+    "polars",
     "igraph",
     "leidenalg",
     "altair"
