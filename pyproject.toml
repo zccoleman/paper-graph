@@ -15,7 +15,9 @@ dependencies = [
     "polars",
     "igraph",
     "leidenalg",
-    "altair"
+    "altair",
+    "python-dotenv",
+    "requests"
 ]
 
 [project.optional-dependencies]
