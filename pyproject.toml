@@ -1,0 +1,31 @@
+[project]
+name = "paper-graph"
+authors = [
+    {name = "Zachary Coleman", email = "coleman.zacharyc@gmail.com"},
+]
+description = "Graph exploration for scientific papers."
+readme = "README.md"
+requires-python = "=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "igraph",
+    "leidenalg",
+    "altair"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipykernel",
+    "pytest"
+]
+
+
+[project.urls]
+Homepage = "https://github.com/zccoleman/paper-graph"
+
+[build-system]
+requires = ["setuptools", "setuptools-scm",]
+build-backend = "setuptools.build_meta"
