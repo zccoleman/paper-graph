@@ -103,7 +103,11 @@ class Work:
     
     @cached_property
     def data(self):
-        data = _lookup_work(self.id, fields = _fields)
+        try:
+            data = _lookup_work(self.id, fields = _fields)
+        except requests.HTTPError:
+            del self
+            return None
         self.id = data['id']
         return data
         
@@ -112,22 +116,45 @@ class Works(Sequence):
 
     def __init__(self, *ids):
         self._works = list(Work(id) for id in ids)
-
     def __len__(self):
         return len(self._works)
     def __getitem__(self, index):
         return self._works[index]
     def __setitem__(self, key, value):
         raise TypeError('You cannot change an item in a Works sequence')
-    
     def append(self, work:Work|str):
         if isinstance(work, str):
             work = Work(work)
         if not isinstance(work, Work):
             raise TypeError(f'Invalid work: {work}')
         self._works.append(work)
-    
-    def to_dataframe(self):
-        return pl.DataFrame(self._works)
+    def __repr__(self):
+        ids = ',\n    '.join(work.id for work in self)
+        return f'{self.__class__.__name__}(\n    {ids},\n)'
+    def _remove_works_without_info(self):
+        self._works = [work for work in self if work.data is not None]
+    def to_dataframe(self, process_nested_columns=True):
+        self._remove_works_without_info()
+        df = pl.DataFrame(work.data for work in self)
+        if process_nested_columns:
+            df = df.with_columns(
+                pl.col('authorships').list.eval(
+                    pl.element().struct.field('author').struct.field('display_name')
+                ).list.join('; '),
+                pl.col('authorships').list.eval(
+                    pl.element().struct.field('institutions').explode().struct.field('display_name')
+                ).list.unique().list.join('; ').alias('institutions')
+            )
+        return df
 
+    @classmethod
+    def related_to(cls, work:Work):
+        raise NotImplementedError
+
+    @classmethod
+    def cited_by(cls, work:Work):
+        raise NotImplementedError
     
+    @classmethod
+    def citing(cls, work:Work):
+        raise NotImplementedError
