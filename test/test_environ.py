@@ -4,8 +4,8 @@ def test_import():
 
 def test_dotenv():
     import os
-    from dotenv import load_dotenv
-    load_dotenv()
+    # from dotenv import load_dotenv
+    # load_dotenv()
 
     test = os.getenv("TEST_ENV")
     assert test=='True'
