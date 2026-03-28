@@ -1,8 +1,11 @@
+from functools import cached_property
+from dataclasses import dataclass
 import os
-import requests
 import time
 
-from typing import Optional
+from typing import Optional, Literal
+
+import requests
 
 def fetch_with_retry(url, max_retries=5, return_full_response=False):
     for attempt in range(max_retries):
@@ -62,20 +65,40 @@ def api_credit_check(api_key:Optional[str]=None):
     )
 
 
-def lookup_work(id, suppress_errors=False, fields:list[str]=[], api_key:Optional[str]=None, ):
+
+def _lookup_work(id, fields:list[str]=[], api_key:Optional[str]=None, ):
+    api_key = check_api_key(api_key)
     if not isinstance(id, str):
         raise TypeError('Work ID must be a string.')
-    api_key = check_api_key(api_key)
     
-    s = f'https://api.openalex.org/works/{id}?api_key={api_key}'
+    request = f'https://api.openalex.org/works/{id}?api_key={api_key}'
     if fields:
-        s += f'&select={','.join(fields)}'
-    try:
-        result = requests.get(s)
-        result = result.json()
-    except Exception as e:
-        if suppress_errors:
-            return None
-        print(id)
-        raise e
+        request += f'&select={','.join(fields)}'
+    result = fetch_with_retry(request)
     return result
+
+_fields = [
+    'id', 'doi', 'title', 'publication_date', 'authorships', 'cited_by_count', 'referenced_works', 'related_works',
+]
+
+
+@dataclass
+class Work:
+    id: str
+
+    def __getitem__(self, key):
+        if key not in _fields:
+            raise ValueError(f'Invalid key: {key}. Valid keys are {_fields}')
+        return self.data[key]
+    def __setitem__(self, key, value):
+        raise TypeError('No setting values')
+    
+    @cached_property
+    def data(self):
+        data = _lookup_work(self.id, fields = _fields)
+        print('not cached')
+        return data
+        
+
+
+    
