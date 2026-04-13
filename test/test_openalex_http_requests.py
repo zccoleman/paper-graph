@@ -5,17 +5,17 @@ import requests
 
 from paper_graph.openalex import Work, api_credit_check, count_api_credits
 
-@count_api_credits
+# @count_api_credits
 def test_api_key():
     key = os.getenv('OPENALEX_KEY')
     assert isinstance(key, str) and len(key)>0, 'Invalid API key set.'
 
-@count_api_credits
+# @count_api_credits
 def test_api_credits():
     result = api_credit_check()
     assert result['credits_limit']==10000
 
-@count_api_credits
+# @count_api_credits
 def test_work_http_request():
     key = os.getenv('OPENALEX_KEY')
     work_id = 'doi:10.1088/1361-6455/ac5efa' ## nominal test work
@@ -24,7 +24,7 @@ def test_work_http_request():
     result = result.json()
     assert result['id'] == 'https://openalex.org/W4220908135' ## known OpenAlex ID of the nominal test work
 
-@count_api_credits
+# @count_api_credits
 def test_work_fetch_with_retry():
     from paper_graph.openalex import fetch_with_retry
     api_key = os.getenv('OPENALEX_KEY')
@@ -33,7 +33,7 @@ def test_work_fetch_with_retry():
     result = fetch_with_retry(request)
     assert isinstance(result, dict)
 
-@count_api_credits
+# @count_api_credits
 def test_manual_work_lookup():
     from paper_graph.openalex import _lookup_work
 
