@@ -7,5 +7,5 @@ def test_dotenv():
     # from dotenv import load_dotenv
     # load_dotenv()
     
-    test = os.getenv("FAKE_ENV_KEY")
-    assert test is None
+    test = os.getenv("OPENALEX_KEY")
+    assert test is not None
