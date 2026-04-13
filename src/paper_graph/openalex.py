@@ -69,7 +69,13 @@ def api_credit_check(api_key:Optional[str]=None):
         hours_until_reset = rate_limit['resets_in_seconds'] / 3600.,
     )
 
-
+def count_api_credits(func: callable, api_key:Optional[str]=None):
+    def wrapper(*args, **kwargs):
+        starting_credits = api_credit_check(api_key=api_key)['credits_used']
+        result = func(*args, **kwargs)
+        ending_credits = api_credit_check(api_key=api_key)['credits_used']
+        print(f'Credits used: {ending_credits-starting_credits}')
+    return wrapper
 
 def _lookup_work(id, fields:list[str]=[], api_key:Optional[str]=None, ):
     api_key = _check_api_key(api_key)
