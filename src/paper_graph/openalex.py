@@ -7,7 +7,11 @@ from typing import Optional, Literal
 from collections.abc import Sequence
 
 import requests
+from requests import HTTPError
 import polars as pl
+
+class WorkNotFoundError(ValueError):
+    pass
 
 def fetch_with_retry(url, max_retries=5, return_full_response=False):
     for attempt in range(max_retries):
@@ -74,43 +78,75 @@ def count_api_credits(func: callable, api_key:Optional[str]=None):
         starting_credits = api_credit_check(api_key=api_key)['credits_used']
         result = func(*args, **kwargs)
         ending_credits = api_credit_check(api_key=api_key)['credits_used']
-        print(f'Credits used: {ending_credits-starting_credits}')
+        # print(f'Credits used: {ending_credits-starting_credits}')
+        credits_used = ending_credits - starting_credits
+        if result is None:
+            return credits_used
+        return credits_used, result
     return wrapper
 
-def _lookup_work(id, fields:list[str]=[], api_key:Optional[str]=None, ):
+def _lookup_work(id, fields:list[str]=[], api_key:Optional[str]=None, raise_if_nonexistent=True):
     api_key = _check_api_key(api_key)
     if not isinstance(id, str):
         raise TypeError('Work ID must be a string.')
     
     if id.startswith('https://openalex.org/W'): ## if we have the full OA URL, shorten to just include the ID to save API credits.
+        old_id = id
         id = id.rsplit('/', maxsplit=1)[-1]
+    elif id.startswith('10.'): ## if ID looks like a doi but is missing the DOI prefix
+        old_id = id
+        id = 'doi:' + id
+    elif id.startswith('https://doi.org/'):
+        old_id = id
+        id = id.lstrip('https://doi.org/')
+    else:
+        old_id = ''
 
-    request = f'https://api.openalex.org/works/{id}?api_key={api_key}'
-    if fields:
-        request += f'&select={','.join(fields)}'
-    result = fetch_with_retry(request)
-    return result
+    
+    id_list = [id_candidate for id_candidate in [id, old_id] if id_candidate]
+    for id in id_list:
+        request = f'https://api.openalex.org/works/{id}?api_key={api_key}'
+        if fields:
+            request += f'&select={','.join(fields)}'
+        try: 
+            result = fetch_with_retry(request)
+            return result
+        except HTTPError:
+            pass
+    if raise_if_nonexistent:
+        raise WorkNotFoundError(id)
+    return None
+    
 
 _fields = [
-    'id', 'doi', 'title', 'publication_date', 'authorships', 'cited_by_count', 'referenced_works', 'related_works',
+    'id',
+    'doi',
+    'title',
+    'publication_date',
+    'authorships',
+    'cited_by_count',
+    'referenced_works',
+    'related_works',
 ]
 
 
 class Work:
-    def __init__(self, id: str):
+    def __init__(self, id: str, *, lazy_load=False, raise_if_nonexistent=True):
         if not isinstance(id, str):
             raise TypeError(f'Work ID must be a string, not {type(id)}')
         
         self.id = id
-
-        if not id.startswith('https://openalex.org/W'):
-            self.id = self['id'] ## getitem will force an item lookup in OA and obtain the OAID.
+        self._raise_if_nonexistent = raise_if_nonexistent
+        if not lazy_load:
+            self.data
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.id}')"
     def __getitem__(self, key):
         if key not in _fields:
-            raise ValueError(f'Invalid key: {key}. Valid keys are {_fields}')
+            raise KeyError(f'Invalid key: {key}. Valid keys are {_fields}')
+        if self.is_blank:
+            raise KeyError('Cannot access data of blank work')
         return self.data[key]
     def __setitem__(self, key, value):
         raise TypeError('No')
@@ -119,17 +155,24 @@ class Work:
     def data(self):
         try:
             data = _lookup_work(self.id, fields = _fields)
-        except requests.HTTPError:
-            del self
-            return None
+        except WorkNotFoundError as e:
+            if self._raise_if_nonexistent:
+                raise e
+            self.is_blank = True
+            return {}
+        self.is_blank = False
         self.id = data['id']
         return data
     
-class Works(Sequence):
+class Works(Sequence[Work]):
     _works: list[Work]
+    is_blank: bool
 
-    def __init__(self, *ids):
-        self._works = list(Work(id) for id in ids)
+    def __init__(self, *ids, drop_non_existent_works = True, raise_if_nonexistent=False):
+        self._works = list(Work(id, raise_if_nonexistent=raise_if_nonexistent) for id in ids)
+        if drop_non_existent_works:
+            self._works = list(work for work in self._works if not work.is_blank)
+
     def __len__(self):
         return len(self._works)
     def __getitem__(self, index):
@@ -145,11 +188,10 @@ class Works(Sequence):
     def __repr__(self):
         ids = ',\n    '.join(f"'{work.id}'" for work in self)
         return f'{self.__class__.__name__}(\n    {ids},\n)'
-    def _remove_works_without_info(self):
-        self._works = [work for work in self if work.data is not None]
+    
     def to_dataframe(self, process_nested_columns=True):
-        self._remove_works_without_info()
-        df = pl.DataFrame(work.data for work in self)
+        
+        df = pl.DataFrame(work.data for work in self if not work.is_blank)
         if process_nested_columns:
             df = df.with_columns(
                 pl.col('authorships').list.eval(
@@ -160,9 +202,11 @@ class Works(Sequence):
                 ).list.unique().list.join('; ').alias('institutions')
             )
         return df
+    def to_df(self, *args, **kwargs):
+        return self.to_dataframe(*args, **kwargs)
 
     @classmethod
-    def related_to(cls, work:Work|str, save_api_credits = True):
+    def related_to(cls, work:Work|str, save_api_credits = True, raise_if_nonexistent=False):
         if isinstance(work, str):
             work = Work(work)
         
@@ -172,17 +216,19 @@ class Works(Sequence):
         if save_api_credits == True:
             ## Do individual API queries for each ID in the list.
             other_work_ids = work['related_works']
-            return cls(*other_work_ids)
+            return cls(*other_work_ids, raise_if_nonexistent=raise_if_nonexistent)
         else:
             ## do an API search for works related to the given ID, and paginate through it. I think this should be faster
             ...
 
     @classmethod
-    def cited_by(cls, work:Work, save_api_credits = True):
-
+    def referenced_by(cls, work:Work|str, save_api_credits = True, raise_if_nonexistent=False):
+        if isinstance(work, str):
+            work = Work(work)
         if save_api_credits == True:
             ## Do individual API queries for each ID in the list. Cheaper but slower.
-            ...
+            other_work_ids = work['referenced_works']
+            return cls(*other_work_ids, raise_if_nonexistent=raise_if_nonexistent)
         else:
             ## Do the expensive but probably faster query.
             ...

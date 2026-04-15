@@ -3,7 +3,8 @@ import pytest
 import os
 import requests
 
-from paper_graph.openalex import Work, api_credit_check, count_api_credits
+from paper_graph.openalex import Work, api_credit_check, count_api_credits, _lookup_work, WorkNotFoundError
+
 
 # @count_api_credits
 def test_api_key():
@@ -35,11 +36,31 @@ def test_work_fetch_with_retry():
 
 # @count_api_credits
 def test_manual_work_lookup():
-    from paper_graph.openalex import _lookup_work
-
     work_id = 'doi:10.1088/1361-6455/ac5efa' ## nominal test work
     result = _lookup_work(work_id)
 
     assert isinstance(result, dict)
     assert result['id'] == 'https://openalex.org/W4220908135' ## known OpenAlex ID of the nominal test work
 
+wrong_doi = '10.1088/1361-6455/ac5efa-WRONG'
+
+def test_doi_prefix_catch():
+    work = Work('10.1088/1361-6455/ac5efa')
+    assert work['id'] == 'https://openalex.org/W4220908135'
+
+def test_not_found_exception():
+    with pytest.raises(WorkNotFoundError):
+        _lookup_work(wrong_doi, raise_if_nonexistent=True)
+
+    assert _lookup_work(wrong_doi, raise_if_nonexistent=False) is None
+
+def test_work_with_wrong_id():
+    work=Work(wrong_doi, raise_if_nonexistent=False)
+    assert work.is_blank
+    with pytest.raises(KeyError):
+        work['id']
+
+    with pytest.raises(WorkNotFoundError):
+        Work(wrong_doi, raise_if_nonexistent=True)
+    with pytest.raises(WorkNotFoundError):
+        Work(wrong_doi) ## default behavior should be to raise if work is not found
