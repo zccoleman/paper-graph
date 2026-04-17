@@ -72,5 +72,19 @@ def test_nonexistent_work_behavior():
     assert blank_work == Work()
     assert blank_work == Work(None)
 
-
+def test_frozen():
+    work = OpenAlex().work('W4220908135')
+    with pytest.raises(TypeError):
+        work['title'] = 'My Title'
+    
+def test_to_dict():
+    work = OpenAlex().work('W4220908135')
+    d = dict(work)
+    assert 'id' in d
+    assert 'title' in d
+    assert 'authorships' in d
+    assert 'doi' in d
+    assert 'cited_by_count' in d
+    assert 'referenced_works' in d
+    assert 'related_works' in d
     
