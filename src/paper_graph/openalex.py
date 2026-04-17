@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from functools import cached_property
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import time
 
-from typing import Optional, Literal
+from typing import Optional, Literal, Callable, Iterable
 from collections.abc import Sequence
 
 import requests
@@ -46,124 +48,53 @@ def fetch_with_retry(url, max_retries=5, return_full_response=False):
 
     raise Exception(f"Failed after {max_retries} retries")
 
-def _check_api_key(api_key):
-    if api_key is None:
-        api_key = os.getenv('OPENALEX_KEY')
-    if not isinstance(api_key, str):
-        raise ValueError('Invalid API key type')
-    return api_key
+def get_api_key():
+    return os.getenv('OPENALEX_KEY')
 
-def _api_credit_check(api_key:Optional[str]=None):
-    api_key = _check_api_key(api_key)
-    request = f"https://api.openalex.org/rate-limit?api_key={api_key}"
-    result = fetch_with_retry(request)
-    return result
-
-def api_credit_check(api_key:Optional[str]=None):
-    result = _api_credit_check(api_key)
-    rate_limit = result['rate_limit']
-    return dict(
-        credits_limit = rate_limit['credits_limit'],
-        credits_used = rate_limit['credits_used'],
-        credits_remaining = rate_limit['credits_remaining'],
-        credits_used_fraction = rate_limit['credits_used'] / rate_limit['credits_limit'],
-        credits_remaining_fraction = rate_limit['credits_remaining'] / rate_limit['credits_limit'],
-        list_queries_remaining = rate_limit['credits_remaining'] // rate_limit['credit_costs']['list'],
-        seconds_until_reset = rate_limit['resets_in_seconds'],
-        hours_until_reset = rate_limit['resets_in_seconds'] / 3600.,
-    )
-
-def count_api_credits(func: callable, api_key:Optional[str]=None):
-    def wrapper(*args, **kwargs):
-        starting_credits = api_credit_check(api_key=api_key)['credits_used']
-        result = func(*args, **kwargs)
-        ending_credits = api_credit_check(api_key=api_key)['credits_used']
-        # print(f'Credits used: {ending_credits-starting_credits}')
-        credits_used = ending_credits - starting_credits
-        if result is None:
-            return credits_used
-        return credits_used, result
-    return wrapper
-
-def _lookup_work(id, fields:list[str]=[], api_key:Optional[str]=None, raise_if_nonexistent=True):
-    api_key = _check_api_key(api_key)
-    if not isinstance(id, str):
-        raise TypeError('Work ID must be a string.')
-    
-    if id.startswith('https://openalex.org/W'): ## if we have the full OA URL, shorten to just include the ID to save API credits.
-        old_id = id
-        id = id.rsplit('/', maxsplit=1)[-1]
-    elif id.startswith('10.'): ## if ID looks like a doi but is missing the DOI prefix
-        old_id = id
-        id = 'doi:' + id
-    elif id.startswith('https://doi.org/'):
-        old_id = id
-        id = id.lstrip('https://doi.org/')
-    else:
-        old_id = ''
-
-    
-    id_list = [id_candidate for id_candidate in [id, old_id] if id_candidate]
-    for id in id_list:
-        request = f'https://api.openalex.org/works/{id}?api_key={api_key}'
-        if fields:
-            request += f'&select={','.join(fields)}'
-        try: 
-            result = fetch_with_retry(request)
-            return result
-        except HTTPError:
-            pass
-    if raise_if_nonexistent:
-        raise WorkNotFoundError(id)
-    return None
-    
-
-_fields = [
-    'id',
-    'doi',
-    'title',
-    'publication_date',
-    'authorships',
-    'cited_by_count',
-    'referenced_works',
-    'related_works',
-]
+def count_api_credits(openalex:Optional[OpenAlex]=None):
+    openalex = OpenAlex() if openalex is None else openalex
+    def decorator(old_func: Callable):
+        def wrapper(*args, **kwargs):
+            starting_credits = openalex.credit_check()['credits_used']
+            result = old_func(*args, **kwargs)
+            ending_credits = openalex.credit_check()['credits_used']
+            credits_used = ending_credits - starting_credits
+            if result is None:
+                return credits_used
+            return credits_used, result
+        return wrapper
+    return decorator
 
 
+@dataclass
 class Work:
-    def __init__(self, id: str, *, lazy_load=False, raise_if_nonexistent=True):
-        if not isinstance(id, str):
-            raise TypeError(f'Work ID must be a string, not {type(id)}')
-        
-        self.id = id
-        self._raise_if_nonexistent = raise_if_nonexistent
-        if not lazy_load:
-            self.data
+    id: str = field(default=None, repr=True)
+    doi: str = field(default=None, repr=False)
+    title: str = field(default=None, repr=False)
+    publication_date: str = field(default=None, repr=False)
+    authorships: list[dict] = field(default=None, repr=False)
+    cited_by_count: int = field(default=None, repr=False)
+    referenced_works: list[str] = field(default=None, repr=False)
+    related_works: list[str] = field(default=None, repr=False)
 
-    def __repr__(self):
-        return f"{self.__class__.__name__}('{self.id}')"
+    @classmethod
+    def fields(cls):
+        return set(cls.__dataclass_fields__.keys())
+    
+    @property
+    def is_blank(self) -> bool:
+        return self.id is None
+    
     def __getitem__(self, key):
-        if key not in _fields:
-            raise KeyError(f'Invalid key: {key}. Valid keys are {_fields}')
-        if self.is_blank:
-            raise KeyError('Cannot access data of blank work')
-        return self.data[key]
+        if key not in self.fields():
+            raise KeyError(f'Invalid key: {key}. Valid keys are {self.fields()}')
+        return getattr(self, key)
     def __setitem__(self, key, value):
         raise TypeError('No')
     
-    @cached_property
-    def data(self):
-        try:
-            data = _lookup_work(self.id, fields = _fields)
-        except WorkNotFoundError as e:
-            if self._raise_if_nonexistent:
-                raise e
-            self.is_blank = True
-            return {}
-        self.is_blank = False
-        self.id = data['id']
-        return data
-    
+    def __bool__(self):
+        return self.id is not None
+
 class Works(Sequence[Work]):
     _works: list[Work]
     is_blank: bool
@@ -240,3 +171,64 @@ class Works(Sequence[Work]):
             raise NotImplementedError
         else:
             ...
+
+@dataclass(repr=False, frozen=True)
+class OpenAlex:
+    api_key: str = field(default_factory=get_api_key)
+
+    def credit_check(self):
+        result = self._credit_check()
+        rate_limit = result['rate_limit']
+        return dict(
+            credits_limit = rate_limit['credits_limit'],
+            credits_used = rate_limit['credits_used'],
+            credits_remaining = rate_limit['credits_remaining'],
+            credits_used_fraction = rate_limit['credits_used'] / rate_limit['credits_limit'],
+            credits_remaining_fraction = rate_limit['credits_remaining'] / rate_limit['credits_limit'],
+            list_queries_remaining = rate_limit['credits_remaining'] // rate_limit['credit_costs']['list'],
+            seconds_until_reset = rate_limit['resets_in_seconds'],
+            hours_until_reset = rate_limit['resets_in_seconds'] / 3600.,
+        )
+    def _credit_check(self):
+        request = f"https://api.openalex.org/rate-limit?api_key={self.api_key}"
+        result = fetch_with_retry(request)
+        return result
+    
+    def work(self, id, *, raise_if_nonexistent=True) -> Work:
+        fields = Work.fields()
+        data = self._lookup_work(id, fields=fields, raise_if_nonexistent=raise_if_nonexistent)
+        if not data:
+            assert not raise_if_nonexistent
+            return Work()
+        return Work(**data)
+    
+    def _lookup_work(self, id, fields:Optional[Iterable[str]]=None, raise_if_nonexistent=True) -> dict:
+        id_candidates = self._get_id_candidates(id)
+        for id in id_candidates:
+            request = self._work_lookup_html_request(id, fields=fields)
+            try: 
+                result = fetch_with_retry(request)
+                return result
+            except HTTPError:
+                pass
+        if raise_if_nonexistent:
+            raise WorkNotFoundError(id)
+        return None
+    def _get_id_candidates(self, id) -> list[str]:
+        candidates = [id]
+        if id.startswith('https://openalex.org/W'): ## if we have the full OA URL, shorten to just include the ID to save API credits.
+            candidates.insert(0, id.rsplit('/', maxsplit=1)[-1])
+        elif id.startswith('10.'): ## if ID looks like a doi but is missing the DOI prefix
+            candidates.insert(0, 'doi:' + id)
+        elif id.startswith('https://doi.org/10.'):
+            candidates.insert(0, 'doi:' + id.lstrip('https://doi.org/'))
+        return candidates
+    def _work_lookup_html_request(self, id, fields: Optional[list[str]]=None) -> str:
+        request = f'https://api.openalex.org/works/{id}?api_key={self.api_key}'
+        if fields:
+            request += f'&select={','.join(fields)}'
+        return request
+
+    def works(self, *ids, drop_non_existent_works = True, raise_if_nonexistent=False) -> Works:
+        ...
+
