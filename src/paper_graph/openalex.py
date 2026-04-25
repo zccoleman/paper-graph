@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, fields
 import os
 import time
 
-from typing import Optional, Literal, Callable, Iterable
+from typing import Optional, Literal, Callable, Iterable, overload, Self
 from collections.abc import Sequence
 
 import requests
@@ -147,15 +147,26 @@ class Works(Sequence[Work]):
 
     def __len__(self):
         return len(self._works)
-    def __getitem__(self, index):
-        return self._works[index]
+    
+    @overload
+    def __getitem__(self, index: int) -> Work: ...
+    @overload
+    def __getitem__(self, s: slice) -> Self: ...
+    def __getitem__(self, key: slice|int):
+        return self._works[key]
+    
     def __setitem__(self, key, value):
         raise TypeError('You cannot change an item in a Works sequence')
+    
+    @property
+    def ids(self):
+        return [work.id for work in self]
     
     def append(self, work:Work):
         if not isinstance(work, Work):
             raise TypeError(f'Invalid work: {work}')
         self._works.append(work)
+    
     def __repr__(self):
         ids = ',\n    '.join(f"'{work.id}'" for work in self)
         return f'{self.__class__.__name__}(\n    {ids},\n)'
@@ -176,41 +187,7 @@ class Works(Sequence[Work]):
     def to_df(self, *args, **kwargs):
         return self.to_dataframe(*args, **kwargs)
 
-    @classmethod
-    def related_to(cls, work:Work|str, save_api_credits = True, raise_if_nonexistent=False):
-        if isinstance(work, str):
-            work = Work(work)
-        
-        if not isinstance(work, Work):
-            raise TypeError(f'Other work must be a string or a Work, not {type(work)}')
-        
-        if save_api_credits == True:
-            ## Do individual API queries for each ID in the list.
-            other_work_ids = work['related_works']
-            return cls(*other_work_ids, raise_if_nonexistent=raise_if_nonexistent)
-        else:
-            ## do an API search for works related to the given ID, and paginate through it. I think this should be faster
-            ...
-
-    @classmethod
-    def referenced_by(cls, work:Work|str, save_api_credits = True, raise_if_nonexistent=False):
-        if isinstance(work, str):
-            work = Work(work)
-        if save_api_credits == True:
-            ## Do individual API queries for each ID in the list. Cheaper but slower.
-            other_work_ids = work['referenced_works']
-            return cls(*other_work_ids, raise_if_nonexistent=raise_if_nonexistent)
-        else:
-            ## Do the expensive but probably faster query.
-            ...
     
-    @classmethod
-    def citing(cls, work:Work, save_api_credits = True):
-        if save_api_credits == True:
-            ## Unfortunately, individual works do not contain the list of works that cite them. We will have to use API credits on this operation
-            raise NotImplementedError
-        else:
-            ...
 
 @dataclass(repr=False, frozen=True)
 class OpenAlex:
