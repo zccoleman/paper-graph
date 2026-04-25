@@ -12,41 +12,12 @@ import requests
 from requests import HTTPError
 import polars as pl
 
+from paper_graph.http import fetch_with_retry
+
 class WorkNotFoundError(ValueError):
     pass
 
-def fetch_with_retry(url, max_retries=5, return_full_response=False):
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, timeout=30)
 
-            if response.status_code == 200:
-                if not return_full_response:
-                    return response.json()
-                return response
-
-            if response.status_code == 429:
-                # Rate limited - wait longer
-                wait_time = 2 ** attempt
-                time.sleep(wait_time)
-                continue
-
-            if response.status_code >= 500:
-                # Server error - retry
-                wait_time = 2 ** attempt
-                time.sleep(wait_time)
-                continue
-
-            # Client error - don't retry
-            response.raise_for_status()
-
-        except requests.exceptions.Timeout:
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-            else:
-                raise
-
-    raise Exception(f"Failed after {max_retries} retries")
 
 def paginate_request(request, max_results):
     if not 'per_page' in request:
