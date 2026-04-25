@@ -187,7 +187,7 @@ class Works(Sequence[Work]):
     def to_df(self, *args, **kwargs):
         return self.to_dataframe(*args, **kwargs)
 
-    
+
 
 @dataclass(repr=False, frozen=True)
 class OpenAlex:
@@ -211,7 +211,25 @@ class OpenAlex:
         result = fetch_with_retry(request)
         return result
     
-    def work(self, id, *, raise_if_nonexistent = True) -> Work:
+    def work(
+            self,
+            id: str,
+            *,
+            raise_if_nonexistent: bool = True,
+            ) -> Work:
+        """
+        Retrievves a specific work from OpenAlex from an ID.
+
+        Args:
+            id (str): The ID of the work. Primarily designed for an OpenAlex 
+                ID or a DOI, but may work for other IDs that OA recognizes.
+            raise_if_nonexistent (bool, optional): Whether to raise an error 
+                if the work cannot be found in OpenAlex. If False, a blank
+                Work object will be returned in this case. Defaults to True.
+
+        Returns:
+            Work
+        """
         data = self._work(id, fields=Work.fields(), raise_if_nonexistent=raise_if_nonexistent)
         if not data:
             assert not raise_if_nonexistent
