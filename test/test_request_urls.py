@@ -34,4 +34,4 @@ def test_openalex_work_request():
     assert OpenAlexWorkRequest(work_id='test_id').url == 'https://api.openalex.org/works/test_id'
     assert OpenAlexWorkRequest('test_id', {'key': 'val'}).url == 'https://api.openalex.org/works/test_id?key=val'
     assert OpenAlexWorkRequest('test_id', key='val').url == 'https://api.openalex.org/works/test_id?key=val'
-
+    assert OpenAlexWorkRequest(key='val').url == 'https://api.openalex.org/works?key=val'

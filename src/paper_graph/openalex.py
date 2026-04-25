@@ -12,7 +12,7 @@ import requests
 from requests import HTTPError
 import polars as pl
 
-from paper_graph.http import fetch_with_retry
+from paper_graph.http import fetch_with_retry, URLRequest, OpenAlexRequest, OpenAlexWorkRequest
 
 class WorkNotFoundError(ValueError):
     pass
@@ -178,8 +178,8 @@ class OpenAlex:
             hours_until_reset = rate_limit['resets_in_seconds'] / 3600.,
         )
     def _credit_check(self):
-        request = f"https://api.openalex.org/rate-limit?api_key={self.api_key}"
-        result = fetch_with_retry(request)
+        request = OpenAlexRequest(path='rate-limit', query={'api_key': self.api_key})
+        result = request.fetch()
         return result
     
     def work(
@@ -211,7 +211,7 @@ class OpenAlex:
         for id in id_candidates:
             request = self._work_lookup_html_request(id, fields=fields)
             try: 
-                result = fetch_with_retry(request)
+                result = request.fetch()
                 return result
             except HTTPError:
                 pass
@@ -227,10 +227,14 @@ class OpenAlex:
         elif id.startswith('https://doi.org/10.'):
             candidates.insert(0, 'doi:' + id.lstrip('https://doi.org/'))
         return candidates
-    def _work_lookup_html_request(self, id, fields: Optional[list[str]]=None) -> str:
-        request = f'https://api.openalex.org/works/{id}?api_key={self.api_key}'
+    def _work_lookup_html_request(self, id, fields: Optional[list[str]]=None) -> URLRequest:
+        query = {
+            'api_key': self.api_key
+        }
         if fields:
-            request += f'&select={','.join(fields)}'
+            query['select'] = ','.join(fields)
+
+        request = OpenAlexWorkRequest(work_id=id, query=query)
         return request
 
     def works(self, ids: Iterable[str], *, drop_non_existent_works: bool = True, raise_if_nonexistent: bool = False) -> Works:
@@ -333,13 +337,19 @@ class OpenAlex:
         if relationship_name is NotImplemented:
             raise ValueError(f'Invalid relationship {relationship}')
 
-        request = f'https://api.openalex.org/works?filter={relationship_name}:{id}?api_key={self.api_key}'
+        query = {
+            'filter': f'{relationship_name}:{id}',
+            'api_key': self.api_key
+        }
         if fields:
-            request += f'&select={','.join(fields)}'
+            query['select'] = ','.join(fields)
+
         if sort is not None:
             if sort not in ['cited_by_count', 'publication_date', 'display_name']:
                 raise ValueError(f'Invalid sort parameter: {sort}')
-            request += f'&sort={sort}:desc'
+            query['sort'] = f'{sort}:desc'
+
+        request = OpenAlexWorkRequest(work_id='', query=query)
         return request
     def _works_related_to_save_api_credits(self, work: Work, relationship:str, max_works: int):
         relationship_map = {

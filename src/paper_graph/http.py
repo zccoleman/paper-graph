@@ -82,7 +82,7 @@ class OpenAlexRequest(URLRequest):
 class OpenAlexWorkRequest(OpenAlexRequest):
     def __init__(self, work_id: str = '', query: dict[str] = {}, **kwargs):
         super().__init__(
-            path = f'works/{work_id}',
+            path = f'works/{work_id}' if work_id else 'works',
             query = query | kwargs
         )
     
