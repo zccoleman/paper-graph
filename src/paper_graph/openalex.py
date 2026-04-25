@@ -326,7 +326,7 @@ class OpenAlex:
             relationship: Literal['similar', 'cited_by', 'citing'],
             sort: Optional[Literal['cited_by_count', 'publication_date', 'display_name']] = None,
             fields: Optional[list[str]]=None,
-        ) -> str:
+        ) -> URLRequest:
         
         relationship_map = {
             'similar': 'related_to',
