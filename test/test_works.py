@@ -1,23 +1,33 @@
 import pytest
 
-from paper_graph.openalex import Work, count_api_credits
+from paper_graph import OpenAlex, Work, Works
 
-def test_requires_id():
-    with pytest.raises(TypeError):
-        Work()
 
-# @count_api_credits
-def test_work_class_lookup_oaid():
-    '''
-    Lookup a work by openalex ID
-    '''
-    work = Work('W4220908135')
-    assert 'Exact analytical solution of the driven qutrit in an open quantum system' in work['title']
+fake_OA = OpenAlex('fake_key')
 
-# @count_api_credits
-def test_work_class_lookup_doi():
-    '''
-    Lookup a work by DOI
-    '''
-    work = Work('doi:10.1088/1361-6455/ac5efa')
-    assert 'Exact analytical solution of the driven qutrit in an open quantum system' in work['title']
+def test_citing_api_request():
+    url = fake_OA._works_related_to_html_request(
+        id='test_id',
+        relationship='citing',
+        sort='publication_date',
+    )
+    assert url == 'https://api.openalex.org/works?filter=referenced_works:test_id?api_key=fake_key&sort=publication_date:desc'
+
+def test_related_api_request():
+    url = fake_OA._works_related_to_html_request(
+        id='test_id',
+        relationship='similar',
+        sort='publication_date',
+    )
+    assert url == 'https://api.openalex.org/works?filter=related_to:test_id?api_key=fake_key&sort=publication_date:desc'
+
+def test_cited_by_api_request():
+    url = fake_OA._works_related_to_html_request(
+        id='test_id',
+        relationship='cited_by',
+        sort='publication_date',
+    )
+    assert url == 'https://api.openalex.org/works?filter=cited_by:test_id?api_key=fake_key&sort=publication_date:desc'
+
+
+
